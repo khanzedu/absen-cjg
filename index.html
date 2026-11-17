@@ -46,11 +46,20 @@
             overflow: hidden;
         }
 
+        /* Perbaikan mode cetak agar mendukung multi-halaman dan grid kartu ID */
         @media print {
+            body, html { height: auto !important; overflow: visible !important; background: #fff !important; }
+            #app-overlay { position: static !important; overflow: visible !important; background: #fff !important; }
             body * { visibility: hidden; }
             #print-area, #print-area * { visibility: visible; }
-            #print-area { position: absolute; left: 0; top: 0; width: 100%; display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-            .print-card { break-inside: avoid; border: 1px solid #000; padding: 10px; margin-bottom: 10px; }
+            #print-area { 
+                position: absolute; left: 0; top: 0; width: 100%; 
+                display: grid !important; grid-template-columns: repeat(3, 1fr) !important; gap: 15px !important; 
+            }
+            .print-card { 
+                break-inside: avoid !important; page-break-inside: avoid !important; 
+                border: 1px solid #111 !important; padding: 12px !important; margin-bottom: 15px !important; background: #fff !important; 
+            }
             .no-print { display: none !important; }
         }
 
