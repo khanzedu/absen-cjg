@@ -781,7 +781,9 @@
                 });
 
                 filteredSiswa.forEach(siswa => {
-                    const absenRecord = filteredRekap.find(r => r.nis.toString() === siswa.nis.toString());
+                    // Normalisasi NIS dengan trim dan String agar angka 0 di depan tetap konsisten
+                    const cleanSiswaNis = String(siswa.nis).trim();
+                    const absenRecord = filteredRekap.find(r => String(r.nis).trim() === cleanSiswaNis);
                     let waktuText = "-";
                     let statusBadge = `<span class="bg-red-100 text-red-700 px-3 py-1 rounded-full text-xs font-bold">Belum Hadir</span>`;
                     
@@ -794,7 +796,7 @@
                     tbody.innerHTML += `
                         <tr class="border-b hover:bg-gray-50">
                             <td class="p-4 text-sm">${waktuText}</td>
-                            <td class="p-4 font-mono text-sm">${siswa.nis}</td>
+                            <td class="p-4 font-mono text-sm">${cleanSiswaNis}</td>
                             <td class="p-4 font-bold text-gray-800 text-sm">${siswa.nama}</td>
                             <td class="p-4 text-sm">${siswa.kelas}</td>
                             <td class="p-4 text-sm">${statusBadge}</td>
@@ -823,13 +825,14 @@
                 let totalHariAktif = uniqueDates.size;
 
                 filteredSiswa.forEach(siswa => {
-                    const totalHadirSiswa = monthRecords.filter(r => r.nis.toString() === siswa.nis.toString()).length;
+                    const cleanSiswaNis = String(siswa.nis).trim();
+                    const totalHadirSiswa = monthRecords.filter(r => String(r.nis).trim() === cleanSiswaNis).length;
                     let persentase = totalHariAktif > 0 ? Math.round((totalHadirSiswa / totalHariAktif) * 100) : 0;
                     let warnaPersen = persentase >= 80 ? 'text-green-600' : (persentase >= 50 ? 'text-yellow-600' : 'text-red-600');
 
                     tbody.innerHTML += `
                         <tr class="border-b hover:bg-gray-50">
-                            <td class="p-4 font-mono text-sm">${siswa.nis}</td>
+                            <td class="p-4 font-mono text-sm">${cleanSiswaNis}</td>
                             <td class="p-4 font-bold text-gray-800 text-sm">${siswa.nama}</td>
                             <td class="p-4 text-sm">${siswa.kelas}</td>
                             <td class="p-4 text-center text-sm"><span class="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-xs font-bold">${totalHadirSiswa} Hari</span></td>
