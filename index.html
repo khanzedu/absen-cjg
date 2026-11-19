@@ -473,8 +473,20 @@
             }
             if (action === 'getDashboardStats') {
                 const todayStr = new Date().toLocaleDateString('id-ID');
-                const hadirHariIni = dummyAbsen.filter(a => new Date(a.timestamp).toLocaleDateString('id-ID') === todayStr).length;
-                return { status: 'success', data: { totalSiswa: globalDataSiswa.length, hadirHariIni: hadirHariIni, belumHadir: globalDataSiswa.length - hadirHariIni }};
+                // Hanya siswa berstatus 'Hadir' yang masuk hitungan Hadir Hari Ini
+                // Siswa dengan status Sakit, Izin, Alfa, atau belum absen tetap masuk ke Belum Hadir
+                const hadirHariIni = dummyAbsen.filter(a => 
+                    new Date(a.timestamp).toLocaleDateString('id-ID') === todayStr && 
+                    (!a.status || a.status === 'Hadir')
+                ).length;
+                return { 
+                    status: 'success', 
+                    data: { 
+                        totalSiswa: globalDataSiswa.length, 
+                        hadirHariIni: hadirHariIni, 
+                        belumHadir: Math.max(0, globalDataSiswa.length - hadirHariIni) 
+                    }
+                };
             }
             if (action === 'getSiswa') return { status: 'success', data: globalDataSiswa };
             if (action === 'addSiswa') {
