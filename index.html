@@ -13,7 +13,7 @@
         // KONFIGURASI APLIKASI
         // =========================================================================
         const IS_PREVIEW = false; // Set true untuk uji coba preview di editor
-        const GAS_URL = "https://script.google.com/macros/s/AKfycbzG2o-FHXxdm1ZWe6Hb-gyccBPhZ9cqJdzCf39nAYH_pRS76UmFEeoj4f9Yd_SZyFTxXA/exec";
+        const GAS_URL = "https://script.google.com/macros/s/AKfycbwaqnf9Z956OgesXN10yM6q1oBxDDXpGwTQh1LuAU1PKF81J6X7pmCRgf_VdImREnRSRQ/exec";
         // =========================================================================
 
         tailwind.config = {
@@ -234,6 +234,8 @@
                             <select id="filter-mode" class="w-full px-4 py-2.5 border rounded-xl focus:ring-2 focus:ring-primary text-sm" onchange="toggleFilterMode(); renderTableRekap()">
                                 <option value="harian">Harian</option>
                                 <option value="bulanan">Bulanan</option>
+                                <option value="semester">6 Bulan (Semester)</option>
+                                <option value="tahunan">Tahunan</option>
                             </select>
                         </div>
                         <div class="flex-1 w-full md:w-1/4" id="wrap-tanggal">
@@ -243,6 +245,17 @@
                         <div class="flex-1 w-full md:w-1/4 hidden" id="wrap-bulan">
                             <label class="block text-gray-700 text-xs font-bold mb-2 uppercase">Bulan</label>
                             <input type="month" id="filter-bulan" class="w-full px-4 py-2.5 border rounded-xl focus:ring-2 focus:ring-primary text-sm" onchange="renderTableRekap()">
+                        </div>
+                        <div class="flex-1 w-full md:w-1/4 hidden" id="wrap-semester">
+                            <label class="block text-gray-700 text-xs font-bold mb-2 uppercase">Semester (6 Bulan)</label>
+                            <select id="filter-semester" class="w-full px-4 py-2.5 border rounded-xl focus:ring-2 focus:ring-primary text-sm" onchange="renderTableRekap()">
+                                <option value="1">Semester 1 (Juli - Desember)</option>
+                                <option value="2">Semester 2 (Januari - Juni)</option>
+                            </select>
+                        </div>
+                        <div class="flex-1 w-full md:w-1/4 hidden" id="wrap-tahun">
+                            <label class="block text-gray-700 text-xs font-bold mb-2 uppercase">Tahun</label>
+                            <input type="number" id="filter-tahun" min="2020" max="2099" class="w-full px-4 py-2.5 border rounded-xl focus:ring-2 focus:ring-primary text-sm" onchange="renderTableRekap()">
                         </div>
                         <div class="flex-1 w-full md:w-1/4">
                             <label class="block text-gray-700 text-xs font-bold mb-2 uppercase">Kelas</label>
@@ -371,6 +384,35 @@
             </div>
         </div>
 
+        <!-- Modal Keterangan Absen Manual (Sakit, Izin, Alfa) -->
+        <div id="modal-status-manual" class="hidden fixed inset-0 bg-black/60 backdrop-blur-sm flex justify-center items-center z-[9999999]">
+            <div class="bg-white w-11/12 max-w-md rounded-2xl shadow-xl p-6 relative">
+                <button onclick="document.getElementById('modal-status-manual').classList.add('hidden')" class="absolute top-4 right-4 text-gray-400 hover:text-gray-700">
+                    <i class="fa-solid fa-xmark text-xl"></i>
+                </button>
+                <h3 class="text-xl font-bold mb-1 text-gray-800">Input Keterangan Kehadiran</h3>
+                <p class="text-xs text-gray-500 mb-4" id="manual-siswa-info">Siswa - NIS</p>
+                <form id="form-manual-status" onsubmit="handleSaveManualStatus(event)">
+                    <input type="hidden" id="manual-nis">
+                    <input type="hidden" id="manual-nama">
+                    <input type="hidden" id="manual-kelas">
+                    <div class="mb-6">
+                        <label class="block text-gray-700 text-xs font-bold mb-2 uppercase">Pilih Status Kehadiran</label>
+                        <select id="manual-status" class="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-primary text-sm font-semibold" required>
+                            <option value="Sakit">Sakit (S)</option>
+                            <option value="Izin">Izin (I)</option>
+                            <option value="Alfa">Alfa / Tanpa Keterangan (A)</option>
+                            <option value="Hadir">Hadir (H)</option>
+                        </select>
+                    </div>
+                    <button type="submit" id="btn-manual" class="w-full bg-primary hover:bg-emerald-700 text-white font-bold py-3 px-4 rounded-xl flex justify-center items-center text-sm shadow">
+                        <span id="txt-manual">Simpan Keterangan</span>
+                        <i id="spin-manual" class="fa-solid fa-spinner fa-spin ml-2 hidden"></i>
+                    </button>
+                </form>
+            </div>
+        </div>
+
         <div id="toast-container" class="fixed bottom-4 right-4 z-[9999999] flex flex-col space-y-2 pointer-events-none"></div>
 
     </div>
@@ -453,15 +495,23 @@
             }
             if (action === 'recordAbsen') {
                 const scannedNis = String(payload.nis).trim();
+                const statusInput = payload.status || 'Hadir';
+                const targetDateStr = payload.tanggal ? new Date(payload.tanggal).toLocaleDateString('id-ID') : new Date().toLocaleDateString('id-ID');
                 const s = globalDataSiswa.find(x => String(x.nis).trim() === scannedNis);
                 if (!s) return { status: 'error', message: 'NIS tidak ditemukan.' };
                 
-                const todayStr = new Date().toLocaleDateString('id-ID');
-                const isScanned = dummyAbsen.some(a => String(a.nis) === scannedNis && new Date(a.timestamp).toLocaleDateString('id-ID') === todayStr);
-                if (isScanned) return { status: 'error', message: s.nama + ' sudah absensi hari ini.' };
+                const existingIndex = dummyAbsen.findIndex(a => String(a.nis).trim() === scannedNis && new Date(a.timestamp).toLocaleDateString('id-ID') === targetDateStr);
+                if (existingIndex !== -1) {
+                    if (payload.isManual) {
+                        dummyAbsen[existingIndex].status = statusInput;
+                        return { status: 'success', message: `Status ${s.nama} diubah menjadi ${statusInput}`, data: s };
+                    }
+                    return { status: 'error', message: s.nama + ' sudah absensi hari ini.' };
+                }
 
-                dummyAbsen.unshift({ timestamp: new Date().toISOString(), nis: s.nis, nama: s.nama, kelas: s.kelas, status: 'Hadir' });
-                return { status: 'success', message: 'Berhasil: ' + s.nama, data: s };
+                const ts = payload.tanggal ? new Date(payload.tanggal + 'T07:30:00').toISOString() : new Date().toISOString();
+                dummyAbsen.unshift({ timestamp: ts, nis: s.nis, nama: s.nama, kelas: s.kelas, status: statusInput });
+                return { status: 'success', message: 'Berhasil: ' + s.nama + ' (' + statusInput + ')', data: s };
             }
             if (action === 'getRekap') return { status: 'success', data: dummyAbsen };
         }
@@ -696,17 +746,25 @@
 
         function toggleFilterMode() {
             const mode = document.getElementById('filter-mode').value;
+            document.getElementById('wrap-tanggal').classList.add('hidden');
+            document.getElementById('wrap-bulan').classList.add('hidden');
+            document.getElementById('wrap-semester').classList.add('hidden');
+            document.getElementById('wrap-tahun').classList.add('hidden');
+
             if (mode === 'harian') {
                 document.getElementById('wrap-tanggal').classList.remove('hidden');
-                document.getElementById('wrap-bulan').classList.add('hidden');
-            } else {
-                document.getElementById('wrap-tanggal').classList.add('hidden');
+            } else if (mode === 'bulanan') {
                 document.getElementById('wrap-bulan').classList.remove('hidden');
+            } else if (mode === 'semester') {
+                document.getElementById('wrap-semester').classList.remove('hidden');
+                document.getElementById('wrap-tahun').classList.remove('hidden');
+            } else if (mode === 'tahunan') {
+                document.getElementById('wrap-tahun').classList.remove('hidden');
             }
         }
 
         async function loadRekap() {
-            document.getElementById('table-rekap').innerHTML = '<tr><td colspan="5" class="p-4 text-center text-gray-500">Memuat...</td></tr>';
+            document.getElementById('table-rekap').innerHTML = '<tr><td colspan="10" class="p-4 text-center text-gray-500">Memuat...</td></tr>';
             const [resSiswa, resRekap] = await Promise.all([fetchAPI('getSiswa'), fetchAPI('getRekap')]);
 
             if (resSiswa.status === 'success') {
@@ -732,7 +790,49 @@
             const filterBulan = document.getElementById('filter-bulan');
             if (!filterBulan.value) filterBulan.value = `${year}-${month}`;
 
+            const filterTahun = document.getElementById('filter-tahun');
+            if (!filterTahun.value) filterTahun.value = year;
+
             renderTableRekap();
+        }
+
+        function openManualModal(nis, nama, kelas, currentStatus) {
+            document.getElementById('manual-nis').value = nis;
+            document.getElementById('manual-nama').value = nama;
+            document.getElementById('manual-kelas').value = kelas;
+            document.getElementById('manual-siswa-info').innerText = `${nama} (NIS: ${nis}) - Tanggal: ${document.getElementById('filter-tanggal').value}`;
+            document.getElementById('manual-status').value = (currentStatus && currentStatus !== 'Belum Hadir') ? currentStatus : 'Sakit';
+            document.getElementById('modal-status-manual').classList.remove('hidden');
+        }
+
+        async function handleSaveManualStatus(e) {
+            e.preventDefault();
+            const nis = document.getElementById('manual-nis').value;
+            const status = document.getElementById('manual-status').value;
+            const tanggal = document.getElementById('filter-tanggal').value;
+
+            document.getElementById('txt-manual').classList.add('hidden');
+            document.getElementById('spin-manual').classList.remove('hidden');
+            document.getElementById('btn-manual').disabled = true;
+
+            const res = await fetchAPI('recordAbsen', { 
+                nis: nis, 
+                status: status, 
+                tanggal: tanggal,
+                isManual: 'true'
+            });
+
+            document.getElementById('txt-manual').classList.remove('hidden');
+            document.getElementById('spin-manual').classList.add('hidden');
+            document.getElementById('btn-manual').disabled = false;
+
+            if (res.status === 'success') {
+                showToast(res.message);
+                document.getElementById('modal-status-manual').classList.add('hidden');
+                loadRekap();
+            } else {
+                showToast(res.message, 'error');
+            }
         }
 
         function parseTanggal(timeStr) {
@@ -743,7 +843,7 @@
             } else {
                 const d = new Date(timeStr);
                 if(isNaN(d.getTime())) return null;
-                y = d.getFullYear(); m = String(d.getMonth() + 1).padStart(2, '0'); day = String(d.getDate()).padStart(2, '0');
+                y = String(d.getFullYear()); m = String(d.getMonth() + 1).padStart(2, '0'); day = String(d.getDate()).padStart(2, '0');
             }
             return { y, m, day, full: `${y}-${m}-${day}`, monthOnly: `${y}-${m}` };
         }
@@ -756,23 +856,26 @@
             const mode = document.getElementById('filter-mode').value;
             const filterTanggal = document.getElementById('filter-tanggal').value;
             const filterBulan = document.getElementById('filter-bulan').value;
+            const filterSemester = document.getElementById('filter-semester').value;
+            const filterTahun = String(document.getElementById('filter-tahun').value);
             const filterKelas = document.getElementById('filter-kelas').value;
 
             let filteredSiswa = globalDataSiswa;
             if (filterKelas !== "") filteredSiswa = filteredSiswa.filter(s => String(s.kelas).trim() === String(filterKelas).trim());
             
             if (filteredSiswa.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="5" class="p-4 text-center text-gray-500">Tidak ada data.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="10" class="p-4 text-center text-gray-500">Tidak ada data siswa.</td></tr>';
                 return;
             }
 
             if (mode === 'harian') {
                 thead.innerHTML = `
-                    <th class="p-4 font-semibold border-b text-sm">Waktu (Lokal)</th>
+                    <th class="p-4 font-semibold border-b text-sm">Waktu</th>
                     <th class="p-4 font-semibold border-b text-sm">NIS</th>
                     <th class="p-4 font-semibold border-b text-sm">Nama</th>
                     <th class="p-4 font-semibold border-b text-sm">Kelas</th>
                     <th class="p-4 font-semibold border-b text-sm">Status</th>
+                    <th class="p-4 font-semibold border-b text-sm text-center no-print">Keterangan</th>
                 `;
 
                 const filteredRekap = globalDataRekap.filter(r => {
@@ -781,16 +884,29 @@
                 });
 
                 filteredSiswa.forEach(siswa => {
-                    // Normalisasi NIS dengan trim dan String agar angka 0 di depan tetap konsisten
                     const cleanSiswaNis = String(siswa.nis).trim();
                     const absenRecord = filteredRekap.find(r => String(r.nis).trim() === cleanSiswaNis);
                     let waktuText = "-";
-                    let statusBadge = `<span class="bg-red-100 text-red-700 px-3 py-1 rounded-full text-xs font-bold">Belum Hadir</span>`;
+                    let statusText = "Belum Hadir";
+                    let statusBadge = `<span class="bg-gray-100 text-gray-600 px-3 py-1 rounded-full text-xs font-bold">Belum Hadir</span>`;
                     
                     if (absenRecord) {
+                        statusText = absenRecord.status || 'Hadir';
                         let dObj = new Date(String(absenRecord.timestamp));
-                        waktuText = !isNaN(dObj.getTime()) ? dObj.toLocaleTimeString('id-ID') : (String(absenRecord.timestamp).split(/[\s,]+/).slice(1).join(" ") || String(absenRecord.timestamp));
-                        statusBadge = `<span class="bg-green-100 text-green-700 px-3 py-1 rounded-full text-xs font-bold">Hadir</span>`;
+                        waktuText = !isNaN(dObj.getTime()) ? dObj.toLocaleTimeString('id-ID', {hour: '2-digit', minute: '2-digit'}) : "-";
+                        
+                        if (statusText === 'Hadir') {
+                            statusBadge = `<span class="bg-green-100 text-green-700 px-3 py-1 rounded-full text-xs font-bold">Hadir</span>`;
+                        } else if (statusText === 'Sakit') {
+                            statusBadge = `<span class="bg-yellow-100 text-yellow-700 px-3 py-1 rounded-full text-xs font-bold">Sakit</span>`;
+                            waktuText = "Manual";
+                        } else if (statusText === 'Izin') {
+                            statusBadge = `<span class="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-xs font-bold">Izin</span>`;
+                            waktuText = "Manual";
+                        } else if (statusText === 'Alfa') {
+                            statusBadge = `<span class="bg-red-100 text-red-700 px-3 py-1 rounded-full text-xs font-bold">Alfa</span>`;
+                            waktuText = "Manual";
+                        }
                     }
 
                     tbody.innerHTML += `
@@ -800,43 +916,82 @@
                             <td class="p-4 font-bold text-gray-800 text-sm">${siswa.nama}</td>
                             <td class="p-4 text-sm">${siswa.kelas}</td>
                             <td class="p-4 text-sm">${statusBadge}</td>
+                            <td class="p-4 text-center no-print">
+                                <button onclick="openManualModal('${cleanSiswaNis}', '${siswa.nama.replace(/'/g, "\\'")}', '${siswa.kelas}', '${statusText}')" class="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 px-3 py-1.5 rounded-lg text-xs font-semibold transition">
+                                    <i class="fa-solid fa-pen-to-square mr-1"></i> Ubah Ket.
+                                </button>
+                            </td>
                         </tr>
                     `;
                 });
             } else {
+                // Header untuk Bulanan, 6 Bulan (Semester), dan Tahunan
                 thead.innerHTML = `
-                    <th class="p-4 font-semibold border-b text-sm">NIS</th>
-                    <th class="p-4 font-semibold border-b text-sm">Nama</th>
-                    <th class="p-4 font-semibold border-b text-sm">Kelas</th>
-                    <th class="p-4 font-semibold border-b text-sm text-center">Total Hadir</th>
-                    <th class="p-4 font-semibold border-b text-sm text-center">Persentase</th>
+                    <th class="p-3 font-semibold border-b text-xs">NIS</th>
+                    <th class="p-3 font-semibold border-b text-xs">Nama Siswa</th>
+                    <th class="p-3 font-semibold border-b text-xs text-center">Hadir</th>
+                    <th class="p-3 font-semibold border-b text-xs text-center">Sakit</th>
+                    <th class="p-3 font-semibold border-b text-xs text-center">Izin</th>
+                    <th class="p-3 font-semibold border-b text-xs text-center">Alfa</th>
+                    <th class="p-3 font-semibold border-b text-xs text-center">% Hadir</th>
+                    <th class="p-3 font-semibold border-b text-xs text-center">% Sakit</th>
+                    <th class="p-3 font-semibold border-b text-xs text-center">% Izin</th>
+                    <th class="p-3 font-semibold border-b text-xs text-center">% Alfa</th>
                 `;
 
                 let uniqueDates = new Set();
-                let monthRecords = globalDataRekap.filter(r => {
+                let periodRecords = globalDataRekap.filter(r => {
                     let pDate = parseTanggal(String(r.timestamp));
-                    if (pDate && pDate.monthOnly === filterBulan) {
-                        uniqueDates.add(pDate.full);
-                        return true;
+                    if (!pDate) return false;
+
+                    let isMatch = false;
+                    if (mode === 'bulanan') {
+                        isMatch = (pDate.monthOnly === filterBulan);
+                    } else if (mode === 'semester') {
+                        const mInt = parseInt(pDate.m, 10);
+                        if (filterSemester === '1') {
+                            // Semester 1: Juli (7) - Desember (12)
+                            isMatch = (pDate.y === filterTahun && mInt >= 7 && mInt <= 12);
+                        } else {
+                            // Semester 2: Januari (1) - Juni (6)
+                            isMatch = (pDate.y === filterTahun && mInt >= 1 && mInt <= 6);
+                        }
+                    } else if (mode === 'tahunan') {
+                        isMatch = (pDate.y === filterTahun);
                     }
-                    return false;
+
+                    if (isMatch) uniqueDates.add(pDate.full);
+                    return isMatch;
                 });
 
                 let totalHariAktif = uniqueDates.size;
 
                 filteredSiswa.forEach(siswa => {
                     const cleanSiswaNis = String(siswa.nis).trim();
-                    const totalHadirSiswa = monthRecords.filter(r => String(r.nis).trim() === cleanSiswaNis).length;
-                    let persentase = totalHariAktif > 0 ? Math.round((totalHadirSiswa / totalHariAktif) * 100) : 0;
-                    let warnaPersen = persentase >= 80 ? 'text-green-600' : (persentase >= 50 ? 'text-yellow-600' : 'text-red-600');
+                    const siswaRecords = periodRecords.filter(r => String(r.nis).trim() === cleanSiswaNis);
+                    
+                    const cHadir = siswaRecords.filter(r => (r.status || 'Hadir') === 'Hadir').length;
+                    const cSakit = siswaRecords.filter(r => r.status === 'Sakit').length;
+                    const cIzin  = siswaRecords.filter(r => r.status === 'Izin').length;
+                    const cAlfa  = siswaRecords.filter(r => r.status === 'Alfa').length;
+
+                    const pHadir = totalHariAktif > 0 ? Math.round((cHadir / totalHariAktif) * 100) : 0;
+                    const pSakit = totalHariAktif > 0 ? Math.round((cSakit / totalHariAktif) * 100) : 0;
+                    const pIzin  = totalHariAktif > 0 ? Math.round((cIzin  / totalHariAktif) * 100) : 0;
+                    const pAlfa  = totalHariAktif > 0 ? Math.round((cAlfa  / totalHariAktif) * 100) : 0;
 
                     tbody.innerHTML += `
-                        <tr class="border-b hover:bg-gray-50">
-                            <td class="p-4 font-mono text-sm">${cleanSiswaNis}</td>
-                            <td class="p-4 font-bold text-gray-800 text-sm">${siswa.nama}</td>
-                            <td class="p-4 text-sm">${siswa.kelas}</td>
-                            <td class="p-4 text-center text-sm"><span class="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-xs font-bold">${totalHadirSiswa} Hari</span></td>
-                            <td class="p-4 text-center font-bold text-sm ${warnaPersen}">${persentase}%</td>
+                        <tr class="border-b hover:bg-gray-50 text-xs">
+                            <td class="p-3 font-mono">${cleanSiswaNis}</td>
+                            <td class="p-3 font-bold text-gray-800">${siswa.nama}</td>
+                            <td class="p-3 text-center font-bold text-green-700 bg-green-50/50">${cHadir}</td>
+                            <td class="p-3 text-center font-bold text-yellow-700 bg-yellow-50/50">${cSakit}</td>
+                            <td class="p-3 text-center font-bold text-blue-700 bg-blue-50/50">${cIzin}</td>
+                            <td class="p-3 text-center font-bold text-red-700 bg-red-50/50">${cAlfa}</td>
+                            <td class="p-3 text-center font-bold text-green-600">${pHadir}%</td>
+                            <td class="p-3 text-center font-semibold text-yellow-600">${pSakit}%</td>
+                            <td class="p-3 text-center font-semibold text-blue-600">${pIzin}%</td>
+                            <td class="p-3 text-center font-semibold text-red-600">${pAlfa}%</td>
                         </tr>
                     `;
                 });
@@ -851,18 +1006,31 @@
             if (mode === 'harian') {
                 const filterTanggal = document.getElementById('filter-tanggal').value;
                 try { tglCetak = new Date(filterTanggal).toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }); } catch(e) { tglCetak = filterTanggal; }
-            } else {
+            } else if (mode === 'bulanan') {
                 jenisLaporan = "LAPORAN KEHADIRAN BULANAN KELAS 6B";
                 const filterBulan = document.getElementById('filter-bulan').value;
                 try {
                     const [y, m] = filterBulan.split('-');
                     tglCetak = new Date(y, parseInt(m)-1, 1).toLocaleDateString('id-ID', { month: 'long', year: 'numeric' });
                 } catch(e) { tglCetak = filterBulan; }
+            } else if (mode === 'semester') {
+                const sem = document.getElementById('filter-semester').value;
+                const thn = document.getElementById('filter-tahun').value;
+                jenisLaporan = `LAPORAN KEHADIRAN SEMESTER ${sem} (6 BULAN) KELAS 6B`;
+                tglCetak = sem === '1' ? `Juli - Desember ${thn}` : `Januari - Juni ${thn}`;
+            } else if (mode === 'tahunan') {
+                const thn = document.getElementById('filter-tahun').value;
+                jenisLaporan = "LAPORAN KEHADIRAN TAHUNAN KELAS 6B";
+                tglCetak = `Tahun ${thn}`;
             }
 
-            let tableContent = document.getElementById('table-rekap').innerHTML;
-            let theadContent = document.getElementById('thead-rekap').innerHTML;
-            tableContent = tableContent.replace(/<span[^>]*>(.*?)<\/span>/g, "$1");
+            // Hapus kolom aksi cetak (no-print) sebelum merender HTML ke jendela print
+            const tempTable = document.createElement('table');
+            tempTable.innerHTML = `<thead><tr>${document.getElementById('thead-rekap').innerHTML}</tr></thead><tbody>${document.getElementById('table-rekap').innerHTML}</tbody>`;
+            tempTable.querySelectorAll('.no-print').forEach(el => el.remove());
+
+            let theadContent = tempTable.querySelector('thead tr').innerHTML;
+            let tableContent = tempTable.querySelector('tbody').innerHTML.replace(/<span[^>]*>(.*?)<\/span>/g, "$1");
 
             const printWindow = window.open('', '_blank');
             const logoHtml = `<img src="https://i.ibb.co.com/p6ZTCJcP/LOGO-CIJAGRA.jpg" class="logo-kop" alt="Logo">`;
