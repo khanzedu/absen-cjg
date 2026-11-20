@@ -7,6 +7,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
    
     <script>
         // =========================================================================
@@ -181,6 +182,48 @@
                             <div class="text-3xl font-black text-red-600 mt-1" id="dash-belum">0</div>
                         </div>
                     </div>
+
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+                        <!-- Daftar Siswa Tidak Hadir Hari Ini -->
+                        <div class="bg-white p-6 rounded-2xl shadow-sm flex flex-col">
+                            <div class="flex justify-between items-center mb-4">
+                                <div>
+                                    <h3 class="font-bold text-gray-800 text-lg">Siswa Tidak Hadir Hari Ini</h3>
+                                    <p class="text-xs text-gray-500" id="dash-today-date">Memuat tanggal...</p>
+                                </div>
+                                <span class="bg-red-50 text-red-600 text-xs font-bold px-3 py-1 rounded-full" id="dash-absent-count">0 Siswa</span>
+                            </div>
+                            <div class="overflow-y-auto max-h-72 flex-grow">
+                                <table class="w-full text-left border-collapse">
+                                    <thead>
+                                        <tr class="bg-gray-50 text-gray-600 text-xs uppercase">
+                                            <th class="p-3 font-semibold border-b">NIS</th>
+                                            <th class="p-3 font-semibold border-b">Nama Siswa</th>
+                                            <th class="p-3 font-semibold border-b text-right">Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="dash-absent-list" class="text-sm">
+                                        <tr><td colspan="3" class="p-4 text-center text-gray-400">Memuat data...</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- Grafik Rekapitulasi Bulanan -->
+                        <div class="bg-white p-6 rounded-2xl shadow-sm flex flex-col">
+                            <div class="flex justify-between items-center mb-4">
+                                <div>
+                                    <h3 class="font-bold text-gray-800 text-lg">Grafik Rekapitulasi Bulanan</h3>
+                                    <p class="text-xs text-gray-500" id="dash-chart-month">Bulan Ini</p>
+                                </div>
+                                <i class="fa-solid fa-chart-column text-primary text-xl"></i>
+                            </div>
+                            <div class="relative flex-grow min-h-[240px] flex items-center justify-center">
+                                <canvas id="monthlyChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+
                     <div class="bg-white p-6 rounded-2xl shadow-sm">
                         <h3 class="font-bold text-gray-800 text-lg mb-2">Informasi Sistem</h3>
                         <p class="text-gray-600 text-sm">Selamat datang di Absen Digital SDN Cijagra 01 Kelas 6B. Silakan gunakan menu di samping untuk mengelola data siswa, mencetak QR Code, atau membuka Kiosk Scanner mandiri.</p>
@@ -428,6 +471,7 @@
         let clockInterval;
         let isScanningLocked = false;
         let globalDataRekap = [];
+        let monthlyChartInstance = null;
         let globalSettings = {
             namaApp: "ABSEN DIGITAL SDN CIJAGRA 01 KELAS 6B",
             namaSekolah: "SDN CIJAGRA 01",
@@ -646,41 +690,137 @@
         }
 
         async function loadDashboard() {
-            const res = await fetchAPI('getDashboardStats');
-            if(res.status === 'success') {
-                document.getElementById('dash-total').innerText = res.data.totalSiswa;
-                document.getElementById('dash-hadir').innerText = res.data.hadirHariIni;
-                document.getElementById('dash-belum').innerText = res.data.belumHadir;
+            const today = new Date();
+            document.getElementById('dash-today-date').innerText = today.toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+            document.getElementById('dash-chart-month').innerText = today.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' });
+
+            const [resStats, resSiswa, resRekap] = await Promise.all([
+                fetchAPI('getDashboardStats'),
+                fetchAPI('getSiswa'),
+                fetchAPI('getRekap')
+            ]);
+
+            if(resStats.status === 'success') {
+                document.getElementById('dash-total').innerText = resStats.data.totalSiswa;
+                document.getElementById('dash-hadir').innerText = resStats.data.hadirHariIni;
+                document.getElementById('dash-belum').innerText = resStats.data.belumHadir;
             }
+
+            if (resSiswa.status === 'success') globalDataSiswa = resSiswa.data;
+            if (resRekap.status === 'success') globalDataRekap = resRekap.data;
+
+            renderDashboardDetails();
         }
 
-        async function loadSiswa() {
-            document.getElementById('table-siswa').innerHTML = '<tr><td colspan="4" class="p-4 text-center text-gray-500">Memuat...</td></tr>';
-            const res = await fetchAPI('getSiswa');
-            if (res.status === 'success') {
-                globalDataSiswa = res.data;
-                renderTableSiswa();
-            }
-        }
+        function renderDashboardDetails() {
+            const today = new Date();
+            const y = String(today.getFullYear());
+            const m = String(today.getMonth() + 1).padStart(2, '0');
+            const d = String(today.getDate()).padStart(2, '0');
+            const todayFull = `${y}-${m}-${d}`;
+            const currentMonth = `${y}-${m}`;
 
-        function renderTableSiswa() {
-            const tbody = document.getElementById('table-siswa');
-            tbody.innerHTML = '';
-            if (globalDataSiswa.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="4" class="p-4 text-center text-gray-500">Belum ada data siswa.</td></tr>';
-                return;
+            // 1. Render Daftar Siswa Tidak Hadir Hari Ini
+            const todayRecords = globalDataRekap.filter(r => {
+                let pDate = parseTanggal(String(r.timestamp));
+                return pDate && pDate.full === todayFull;
+            });
+
+            const absentStudents = [];
+            globalDataSiswa.forEach(siswa => {
+                const cleanNis = String(siswa.nis).trim();
+                const rec = todayRecords.find(r => String(r.nis).trim() === cleanNis);
+                const status = rec ? (rec.status || 'Hadir') : 'Belum Hadir';
+
+                if (status !== 'Hadir') {
+                    absentStudents.push({
+                        nis: cleanNis,
+                        nama: siswa.nama,
+                        status: status
+                    });
+                }
+            });
+
+            document.getElementById('dash-absent-count').innerText = `${absentStudents.length} Siswa`;
+            const tbodyAbsent = document.getElementById('dash-absent-list');
+            tbodyAbsent.innerHTML = '';
+
+            if (absentStudents.length === 0) {
+                tbodyAbsent.innerHTML = '<tr><td colspan="3" class="p-6 text-center text-green-600 font-medium text-xs"><i class="fa-solid fa-circle-check mr-1"></i> Semua siswa hadir hari ini!</td></tr>';
+            } else {
+                absentStudents.forEach(s => {
+                    let badge = `<span class="bg-gray-100 text-gray-600 px-2.5 py-1 rounded-full text-xs font-bold">Belum Absen</span>`;
+                    if (s.status === 'Sakit') badge = `<span class="bg-yellow-100 text-yellow-700 px-2.5 py-1 rounded-full text-xs font-bold">Sakit</span>`;
+                    else if (s.status === 'Izin') badge = `<span class="bg-blue-100 text-blue-700 px-2.5 py-1 rounded-full text-xs font-bold">Izin</span>`;
+                    else if (s.status === 'Alfa') badge = `<span class="bg-red-100 text-red-700 px-2.5 py-1 rounded-full text-xs font-bold">Alfa</span>`;
+
+                    tbodyAbsent.innerHTML += `
+                        <tr class="border-b last:border-0 hover:bg-gray-50">
+                            <td class="p-3 font-mono text-xs text-gray-600">${s.nis}</td>
+                            <td class="p-3 font-semibold text-gray-800 text-xs">${s.nama}</td>
+                            <td class="p-3 text-right">${badge}</td>
+                        </tr>
+                    `;
+                });
             }
-            globalDataSiswa.forEach(s => {
-                tbody.innerHTML += `
-                    <tr class="border-b hover:bg-gray-50 transition">
-                        <td class="p-4 text-sm">${s.nis}</td>
-                        <td class="p-4 font-bold text-gray-800 text-sm">${s.nama}</td>
-                        <td class="p-4 text-sm">${s.kelas}</td>
-                        <td class="p-4 text-center">
-                            <button onclick="deleteSiswa('${s.nis}')" class="text-red-500 hover:bg-red-100 p-2 rounded-xl transition"><i class="fa-solid fa-trash"></i></button>
-                        </td>
-                    </tr>
-                `;
+
+            // 2. Render Grafik Rekapitulasi Bulanan
+            const monthRecords = globalDataRekap.filter(r => {
+                let pDate = parseTanggal(String(r.timestamp));
+                return pDate && pDate.monthOnly === currentMonth;
+            });
+
+            const totalHadir = monthRecords.filter(r => (r.status || 'Hadir') === 'Hadir').length;
+            const totalSakit = monthRecords.filter(r => r.status === 'Sakit').length;
+            const totalIzin  = monthRecords.filter(r => r.status === 'Izin').length;
+            const totalAlfa  = monthRecords.filter(r => r.status === 'Alfa').length;
+
+            const ctx = document.getElementById('monthlyChart').getContext('2d');
+            if (monthlyChartInstance) {
+                monthlyChartInstance.destroy();
+            }
+
+            monthlyChartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: ['Hadir', 'Sakit', 'Izin', 'Alfa'],
+                    datasets: [{
+                        label: 'Jumlah Kehadiran (Hari)',
+                        data: [totalHadir, totalSakit, totalIzin, totalAlfa],
+                        backgroundColor: [
+                            'rgba(16, 185, 129, 0.85)', // Emerald (Hadir)
+                            'rgba(245, 158, 11, 0.85)', // Amber (Sakit)
+                            'rgba(59, 130, 246, 0.85)', // Blue (Izin)
+                            'rgba(239, 68, 68, 0.85)'   // Red (Alfa)
+                        ],
+                        borderColor: [
+                            'rgb(16, 185, 129)',
+                            'rgb(245, 158, 11)',
+                            'rgb(59, 130, 246)',
+                            'rgb(239, 68, 68)'
+                        ],
+                        borderWidth: 1,
+                        borderRadius: 8
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: { stepSize: 1, font: { size: 11 } },
+                            grid: { color: '#f3f4f6' }
+                        },
+                        x: {
+                            ticks: { font: { weight: 'bold', size: 12 } },
+                            grid: { display: false }
+                        }
+                    }
+                }
             });
         }
 
